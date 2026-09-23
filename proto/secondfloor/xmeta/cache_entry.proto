@@ -1,0 +1,11 @@
+syntax = "proto2";
+
+package secondfloor.xmeta;
+
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/DavidBuchanan314/secondfloor/secondfloor/xmetapb";
+
+message CacheEntry {
+  optional google.protobuf.Any value = 2;
+}

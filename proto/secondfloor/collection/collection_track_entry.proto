@@ -1,0 +1,17 @@
+syntax = "proto2";
+
+package secondfloor.collection.proto;
+
+option go_package = "github.com/DavidBuchanan314/secondfloor/secondfloor/collectionpb";
+
+message CollectionTrackEntry {
+  optional string uri = 1;
+  optional string track_name = 2;
+  optional string album_uri = 3;
+  optional string album_name = 4;
+  optional int32 disc_number = 5;
+  optional int32 track_number = 6;
+  optional string artist_uri = 7;
+  repeated string artist_name = 8;
+  optional int64 add_time = 9;
+}
