@@ -2,9 +2,8 @@ package secondfloor
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"syscall"
+	"time"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -16,19 +15,28 @@ type DB struct {
 	ldb *leveldb.DB
 }
 
+// openDBAttempts covers concurrent writers modifying or compacting the
+// database while we open it, which can leave us with a torn read or a file
+// that was just removed.
+const openDBAttempts = 3
+
 func OpenDB(dbPath string) (*DB, error) {
-	ldb, err := leveldb.OpenFile(dbPath, &opt.Options{
-		ReadOnly:       true,
-		ErrorIfMissing: true,
-		Comparer:       GreenbaseComparer{},
-	})
-	if errors.Is(err, syscall.EWOULDBLOCK) {
-		return nil, fmt.Errorf("%s is locked (is spotify running?): %w", dbPath, err)
+	var err error
+	for attempt := range openDBAttempts {
+		if attempt > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		var ldb *leveldb.DB
+		ldb, err = leveldb.Open(&readOnlyStorage{path: dbPath}, &opt.Options{
+			ReadOnly:       true,
+			ErrorIfMissing: true,
+			Comparer:       GreenbaseComparer{},
+		})
+		if err == nil {
+			return &DB{ldb: ldb}, nil
+		}
 	}
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", dbPath, err)
-	}
-	return &DB{ldb: ldb}, nil
+	return nil, fmt.Errorf("%s: %w", dbPath, err)
 }
 
 func (db *DB) Close() error {
