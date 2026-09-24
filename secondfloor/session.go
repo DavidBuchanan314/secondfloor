@@ -90,7 +90,7 @@ func (sess *Session) DownloadedTracks() ([]*DownloadedTrack, error) {
 	return tracks, nil
 }
 
-func (sess *Session) Export(t *DownloadedTrack, audioIV []byte, outDir string) (string, error) {
+func (sess *Session) Export(t *DownloadedTrack, outDir string) (string, error) {
 	if t.Track == nil {
 		return "", errors.New("no collection metadata")
 	}
@@ -102,7 +102,7 @@ func (sess *Session) Export(t *DownloadedTrack, audioIV []byte, outDir string) (
 		return "", errors.New("unsupported format " + t.File.GetFormat().String())
 	}
 	dst := TrackOutputPath(outDir, t.Track, ext)
-	if err := sess.Index.DecryptFile(t.Record, t.File.GetFormat(), t.Key, audioIV, dst); err != nil {
+	if err := sess.Index.DecryptFile(t.Record, t.File.GetFormat(), t.Key, dst); err != nil {
 		return "", err
 	}
 	return dst, nil

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -110,11 +109,6 @@ func runSync(args []string) {
 	}
 	outDir := flags.Arg(0)
 
-	audioIV, err := hex.DecodeString(requireEnv("SECONDFLOOR_AUDIO_IV"))
-	if err != nil || len(audioIV) != 16 {
-		fatal(errors.New("SECONDFLOOR_AUDIO_IV must be 16 hex-encoded bytes"))
-	}
-
 	sess := src.open()
 	defer sess.Close()
 	tracks, err := sess.DownloadedTracks()
@@ -122,7 +116,7 @@ func runSync(args []string) {
 		fatal(err)
 	}
 	for _, t := range tracks {
-		dst, err := sess.Export(t, audioIV, outDir)
+		dst, err := sess.Export(t, outDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "skipping %s: %v\n", t.URI, err)
 			continue

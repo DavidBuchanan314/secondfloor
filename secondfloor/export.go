@@ -63,7 +63,9 @@ func TrackOutputPath(outDir string, track *collectionpb.CollectionTrackEntry, ex
 	)
 }
 
-func (idx *StorageIndex) DecryptFile(rec *StorageRecord, format contentagnosticpb.Format, contentKey ContentKey, audioIV []byte, dstPath string) error {
+var audioIV = []byte{0x72, 0xe0, 0x67, 0xfb, 0xdd, 0xcb, 0xcf, 0x77, 0xeb, 0xe8, 0xbc, 0x64, 0x3f, 0x63, 0x0d, 0x93}
+
+func (idx *StorageIndex) DecryptFile(rec *StorageRecord, format contentagnosticpb.Format, contentKey ContentKey, dstPath string) error {
 	src, err := os.Open(idx.FilePath(rec))
 	if err != nil {
 		return err
