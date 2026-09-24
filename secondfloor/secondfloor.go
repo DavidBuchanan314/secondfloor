@@ -2,6 +2,9 @@ package secondfloor
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"syscall"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -19,8 +22,11 @@ func OpenDB(dbPath string) (*DB, error) {
 		ErrorIfMissing: true,
 		Comparer:       GreenbaseComparer{},
 	})
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return nil, fmt.Errorf("%s is locked (is spotify running?): %w", dbPath, err)
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", dbPath, err)
 	}
 	return &DB{ldb: ldb}, nil
 }
@@ -38,7 +44,7 @@ func (db *DB) ListKeys() ([][]byte, error) {
 		keys = append(keys, append([]byte(nil), iter.Key()...))
 	}
 	if err := iter.Error(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("iterating keys: %w", err)
 	}
 	return keys, nil
 }

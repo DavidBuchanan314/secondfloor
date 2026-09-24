@@ -19,21 +19,33 @@ type Source struct {
 }
 
 func (s *Source) OpenDB() (*DB, error) {
-	return OpenDB(filepath.Join(s.UserDir, "primary.ldb"))
+	db, err := OpenDB(filepath.Join(s.UserDir, "primary.ldb"))
+	if err != nil {
+		return nil, fmt.Errorf("opening metadata database: %w", err)
+	}
+	return db, nil
 }
 
 func (s *Source) ReadOfflineLists() (*OfflineLists, error) {
-	return ReadOfflineLists(filepath.Join(s.UserDir, "offline_lists.bnk"))
+	lists, err := ReadOfflineLists(filepath.Join(s.UserDir, "offline_lists.bnk"))
+	if err != nil {
+		return nil, fmt.Errorf("reading offline lists: %w", err)
+	}
+	return lists, nil
 }
 
 func (s *Source) ReadOfflineKeys(deviceID string) (map[FileID]ContentKey, error) {
-	return ReadOfflineKeys(filepath.Join(s.UserDir, "offline2"), deviceID)
+	keys, err := ReadOfflineKeys(filepath.Join(s.UserDir, "offline2"), deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("reading offline content keys: %w", err)
+	}
+	return keys, nil
 }
 
 func (s *Source) ReadStorageIndex(hmacSecret []byte) (*StorageIndex, error) {
 	idx, err := ReadStorageIndex(s.StorageDir, hmacSecret)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading storage index: %w", err)
 	}
 	idx.FileDirs = s.FileDirs
 	return idx, nil
@@ -47,7 +59,7 @@ func (s *Source) Validate() error {
 		filepath.Join(s.StorageDir, "index.dat"),
 	} {
 		if _, err := os.Stat(path); err != nil {
-			return err
+			return fmt.Errorf("spotify data for account %s is incomplete: %w", s.Username, err)
 		}
 	}
 	return nil
@@ -86,7 +98,7 @@ func DesktopInstalls() []DesktopInstall {
 func (in DesktopInstall) Sources() ([]*Source, error) {
 	userDirs, err := filepath.Glob(filepath.Join(in.CacheDir, "Users", "*-user"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing accounts in %s: %w", in.CacheDir, err)
 	}
 	if len(userDirs) == 0 {
 		return nil, nil
@@ -95,7 +107,7 @@ func (in DesktopInstall) Sources() ([]*Source, error) {
 	if in.PrefsPath != "" {
 		prefs, err := ReadPrefs(in.PrefsPath)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+			return nil, fmt.Errorf("reading spotify prefs: %w", err)
 		}
 		if location := prefs["storage.location"]; location != "" {
 			storageDir = location

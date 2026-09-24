@@ -96,7 +96,7 @@ func (idx *StorageIndex) DecryptAudio(rec *StorageRecord, format contentagnostic
 	}
 
 	if _, err := io.Copy(w, r); err != nil {
-		return err
+		return fmt.Errorf("decrypting %s: %w", idx.FilePath(rec), err)
 	}
 	if limited.N != 0 {
 		return fmt.Errorf("%s: missing %d of %d content bytes", idx.FilePath(rec), limited.N, rec.ContentLength)
@@ -121,7 +121,7 @@ func skipSpotifyOggPage(r *bufio.Reader) error {
 	const headerSize = 27
 	header, err := r.Peek(headerSize)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading first ogg page header: %w", err)
 	}
 	if string(header[:4]) != "OggS" || header[5]&0x06 != 0x06 {
 		return errors.New("first ogg page is not a spotify header page")
@@ -129,14 +129,14 @@ func skipSpotifyOggPage(r *bufio.Reader) error {
 	segments := int(header[26])
 	full, err := r.Peek(headerSize + segments)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading first ogg page segment table: %w", err)
 	}
 	pageSize := headerSize + segments
 	for _, n := range full[headerSize:] {
 		pageSize += int(n)
 	}
 	if _, err := r.Discard(pageSize); err != nil {
-		return err
+		return fmt.Errorf("skipping spotify header page: %w", err)
 	}
 	if next, err := r.Peek(4); err != nil || string(next) != "OggS" {
 		return errors.New("no ogg page after spotify header page")
@@ -165,7 +165,7 @@ func writeFileAtomic(dstPath string, write func(io.Writer) error, finalize func(
 		return err
 	}
 	if err = finalize(tmp.Name()); err != nil {
-		return err
+		return fmt.Errorf("finalizing %s: %w", tmp.Name(), err)
 	}
 	return os.Rename(tmp.Name(), dstPath)
 }

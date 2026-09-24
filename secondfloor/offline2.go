@@ -6,7 +6,6 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha1"
-	"errors"
 	"fmt"
 	"os"
 
@@ -30,16 +29,16 @@ func ReadOfflineKeys(offline2Path string, deviceID string) (map[FileID]ContentKe
 		return nil, err
 	}
 	if len(data) < offline2PrefixSize+offline2SaltSize+offline2HeaderSize+offline2MACSize {
-		return nil, fmt.Errorf("offline2 is too short (%d bytes)", len(data))
+		return nil, fmt.Errorf("%s is too short (%d bytes)", offline2Path, len(data))
 	}
 	salt := data[offline2PrefixSize : offline2PrefixSize+offline2SaltSize]
 	if !bytes.Equal(data[:offline2PrefixSize], salt[:offline2PrefixSize]) {
-		return nil, errors.New("offline2 prefix does not match salt")
+		return nil, fmt.Errorf("%s: prefix does not match salt", offline2Path)
 	}
 	ciphertext := data[offline2PrefixSize+offline2SaltSize : len(data)-offline2MACSize]
 	tag := data[len(data)-offline2MACSize:]
 	if (len(ciphertext)-offline2HeaderSize)%offline2EntrySize != 0 {
-		return nil, fmt.Errorf("offline2 has invalid payload size %d", len(ciphertext))
+		return nil, fmt.Errorf("%s has invalid payload size %d", offline2Path, len(ciphertext))
 	}
 
 	masterKey := sha1.Sum([]byte(deviceID))
@@ -48,7 +47,7 @@ func ReadOfflineKeys(offline2Path string, deviceID string) (map[FileID]ContentKe
 	mac := hmac.New(sha1.New, raw[:20])
 	mac.Write(ciphertext)
 	if !hmac.Equal(mac.Sum(nil), tag) {
-		return nil, errors.New("offline2 has bad hmac")
+		return nil, fmt.Errorf("%s has bad hmac (device id %q)", offline2Path, deviceID)
 	}
 
 	block, err := aes.NewCipher(raw[20:36])

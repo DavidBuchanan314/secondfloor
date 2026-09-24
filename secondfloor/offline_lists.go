@@ -35,12 +35,12 @@ func ReadOfflineLists(bnkPath string) (*OfflineLists, error) {
 	}
 	root, err := ParseBnk(data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing %s: %w", bnkPath, err)
 	}
 	out := &OfflineLists{}
 	for _, ctx := range root.Repeated(offlineContextsField) {
 		if ctx.Type != BnkStruct {
-			return nil, fmt.Errorf("offline context has type %d", ctx.Type)
+			return nil, fmt.Errorf("%s: offline context has type %d", bnkPath, ctx.Type)
 		}
 		var oc OfflineContext
 		if uri, ok := ctx.Field(offlineURIField); ok && uri.Type == BnkBytes {
@@ -52,7 +52,7 @@ func ReadOfflineLists(bnkPath string) (*OfflineLists, error) {
 		for _, track := range ctx.Repeated(offlineTracksField) {
 			gid, ok := track.Field(offlineGIDField)
 			if !ok || gid.Type != BnkBytes || len(gid.Bytes) != 16 {
-				return nil, fmt.Errorf("context %s has a track entry without a 16-byte gid", oc.URI)
+				return nil, fmt.Errorf("%s: context %s has a track entry without a 16-byte gid", bnkPath, oc.URI)
 			}
 			oc.TrackGIDs = append(oc.TrackGIDs, gid.Bytes)
 		}
@@ -63,7 +63,7 @@ func ReadOfflineLists(bnkPath string) (*OfflineLists, error) {
 		if id, ok := device.Field(offlineDeviceIDField); ok && id.Type == BnkBytes {
 			decoded, err := hex.DecodeString(string(id.Bytes))
 			if err != nil {
-				return nil, fmt.Errorf("device id: %w", err)
+				return nil, fmt.Errorf("%s: device id: %w", bnkPath, err)
 			}
 			out.DeviceID = string(decoded)
 		}

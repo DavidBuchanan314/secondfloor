@@ -64,7 +64,7 @@ func main() {
 	})))
 
 	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		fatal(err)
+		fatal(fmt.Errorf("loading .env: %w", err))
 	}
 
 	commands := map[string]func([]string){
@@ -157,11 +157,11 @@ const watchSettle = time.Second
 func watchAndSync(syncer *secondfloor.Syncer) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return err
+		return fmt.Errorf("creating file watcher: %w", err)
 	}
 	defer watcher.Close()
 	if err := watcher.Add(syncer.Source.UserDir); err != nil {
-		return err
+		return fmt.Errorf("watching %s: %w", syncer.Source.UserDir, err)
 	}
 
 	runSync := func() {
@@ -194,7 +194,7 @@ func watchAndSync(syncer *secondfloor.Syncer) error {
 			if !ok {
 				return nil
 			}
-			return err
+			return fmt.Errorf("watching %s: %w", syncer.Source.UserDir, err)
 		case <-settle.C:
 			runSync()
 		}

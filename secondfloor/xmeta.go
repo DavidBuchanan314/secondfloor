@@ -19,13 +19,16 @@ var (
 func (db *DB) xmetaCache(extension []byte, uri string, m proto.Message) error {
 	value, err := db.ldb.Get(GreenbaseKey("!xmeta#cache#", extension, []byte(uri)), nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading xmeta cache entry: %w", err)
 	}
 	entry := &xmetapb.CacheEntry{}
 	if err := proto.Unmarshal(value, entry); err != nil {
-		return err
+		return fmt.Errorf("decoding xmeta cache entry: %w", err)
 	}
-	return unmarshalAny(entry.GetValue(), m)
+	if err := unmarshalAny(entry.GetValue(), m); err != nil {
+		return fmt.Errorf("decoding xmeta cache value: %w", err)
+	}
+	return nil
 }
 
 func unmarshalAny(a *anypb.Any, m proto.Message) error {
@@ -41,7 +44,7 @@ func unmarshalAny(a *anypb.Any, m proto.Message) error {
 func (db *DB) PlaybackTrait(trackURI string) (*contentagnosticpb.PlaybackTrait, error) {
 	trait := &contentagnosticpb.PlaybackTrait{}
 	if err := db.xmetaCache(playbackTraitExtension, trackURI, trait); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("playback trait: %w", err)
 	}
 	return trait, nil
 }
@@ -49,7 +52,7 @@ func (db *DB) PlaybackTrait(trackURI string) (*contentagnosticpb.PlaybackTrait, 
 func (db *DB) Track(trackURI string) (*metadatapb.Track, error) {
 	track := &metadatapb.Track{}
 	if err := db.xmetaCache(trackExtension, trackURI, track); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("track metadata: %w", err)
 	}
 	return track, nil
 }

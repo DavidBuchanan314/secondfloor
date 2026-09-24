@@ -113,7 +113,7 @@ func (sess *Session) LookupTrack(gid []byte, contextURI string) (*DownloadedTrac
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", uri, err)
 	}
 	t := &DownloadedTrack{GID: gid, URI: uri}
 	for _, file := range AudioFiles(trait) {
@@ -132,7 +132,7 @@ func (sess *Session) LookupTrack(gid []byte, contextURI string) (*DownloadedTrac
 	if errors.Is(err, ErrNotFound) {
 		t.Track = nil
 	} else if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", uri, err)
 	}
 	sess.Logger.Debug("found downloaded track",
 		"uri", uri,
@@ -168,7 +168,7 @@ func (sess *Session) Export(t *DownloadedTrack, outDir string, overwrite bool) (
 	}
 	cover, err := sess.cover(t.Track.GetAlbum())
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("reading cover art: %w", err)
 	}
 	if cover == nil {
 		sess.Logger.Debug("no cover", "uri", t.URI)
@@ -181,7 +181,7 @@ func (sess *Session) Export(t *DownloadedTrack, outDir string, overwrite bool) (
 		return writeTags(path, t.Track, cover)
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("writing %s: %w", dst, err)
 	}
 	return dst, nil
 }

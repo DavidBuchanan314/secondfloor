@@ -67,16 +67,17 @@ type StorageRecord struct {
 }
 
 func ReadStorageIndex(storageDir string, hmacSecret []byte) (*StorageIndex, error) {
-	data, err := os.ReadFile(filepath.Join(storageDir, "index.dat"))
+	indexPath := filepath.Join(storageDir, "index.dat")
+	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		return nil, err
 	}
 	if len(data) < storageHeaderSize || (len(data)-storageHeaderSize)%storageRecordSize != 0 {
-		return nil, fmt.Errorf("index.dat has invalid size %d", len(data))
+		return nil, fmt.Errorf("%s has invalid size %d", indexPath, len(data))
 	}
 	magic := data[0x00:0x10]
 	if !bytes.Equal(magic, storageMagic) && !bytes.Equal(magic, storageMagicOld) {
-		return nil, fmt.Errorf("index.dat has bad magic %x", magic)
+		return nil, fmt.Errorf("%s has bad magic %x", indexPath, magic)
 	}
 
 	idx := &StorageIndex{
@@ -90,7 +91,7 @@ func ReadStorageIndex(storageDir string, hmacSecret []byte) (*StorageIndex, erro
 	copy(idx.Salt[:], data[0x20:0x24])
 	copy(idx.UserHash[:], data[0x104:0x118])
 	if idx.Version != 3 {
-		return nil, fmt.Errorf("index.dat has unsupported version %d", idx.Version)
+		return nil, fmt.Errorf("%s has unsupported version %d", indexPath, idx.Version)
 	}
 
 	mac := hmac.New(sha1.New, hmacSecret)
@@ -108,11 +109,11 @@ func ReadStorageIndex(storageDir string, hmacSecret []byte) (*StorageIndex, erro
 		off := storageHeaderSize + slot*storageRecordSize
 		rec, err := decryptStorageRecord(block, slot, data[off:off+storageRecordSize])
 		if err != nil {
-			return nil, fmt.Errorf("index.dat record %d: %w", slot, err)
+			return nil, fmt.Errorf("%s record %d: %w", indexPath, slot, err)
 		}
 		key := StorageKey{ID: rec.ID, Realm: rec.Realm}
 		if _, dup := idx.ByKey[key]; dup {
-			return nil, fmt.Errorf("index.dat record %d: duplicate id %x in realm %d", slot, rec.ID, rec.Realm)
+			return nil, fmt.Errorf("%s record %d: duplicate id %x in realm %d", indexPath, slot, rec.ID, rec.Realm)
 		}
 		idx.Records = append(idx.Records, rec)
 		idx.ByKey[key] = rec

@@ -27,7 +27,7 @@ func DownloadCover(fileID []byte) ([]byte, error) {
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxCoverSize))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cover %x: reading response: %w", fileID, err)
 	}
 	if !isCoverImage(data) {
 		return nil, fmt.Errorf("cover %x is not a jpeg or png", fileID)
