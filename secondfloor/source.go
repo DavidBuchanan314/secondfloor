@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,6 +72,16 @@ type DesktopInstall struct {
 }
 
 func DesktopInstalls() []DesktopInstall {
+	if runtime.GOOS == "darwin" {
+		config, err := os.UserConfigDir() // ~/Library/Application Support
+		if err != nil {
+			return nil
+		}
+		return []DesktopInstall{{
+			CacheDir:  filepath.Join(config, "Spotify", "PersistentCache"),
+			PrefsPath: filepath.Join(config, "Spotify", "prefs"),
+		}}
+	}
 	var installs []DesktopInstall
 	if home, err := os.UserHomeDir(); err == nil {
 		installs = append(installs,
