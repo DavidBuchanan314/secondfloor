@@ -96,11 +96,10 @@ func runList(args []string) {
 
 	sess := src.open()
 	defer sess.Close()
-	tracks, err := sess.DownloadedTracks()
-	if err != nil {
-		fatal(err)
-	}
-	for _, t := range tracks {
+	for t, err := range sess.DownloadedTracks() {
+		if err != nil {
+			fatal(err)
+		}
 		desc := "(no metadata)"
 		if t.Track != nil {
 			var artists []string
@@ -134,11 +133,10 @@ func runSync(args []string) {
 
 	sess := src.open()
 	defer sess.Close()
-	tracks, err := sess.DownloadedTracks()
-	if err != nil {
-		fatal(err)
-	}
-	for _, t := range tracks {
+	for t, err := range sess.DownloadedTracks() {
+		if err != nil {
+			fatal(err)
+		}
 		dst, err := sess.Export(t, outDir, *overwrite)
 		if errors.Is(err, secondfloor.ErrExists) {
 			slog.Debug("already exported", "uri", t.URI, "path", dst)

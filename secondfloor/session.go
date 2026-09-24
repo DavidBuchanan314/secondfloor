@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"log/slog"
 	"os"
 
@@ -63,56 +64,65 @@ func (sess *Session) Close() error {
 	return sess.DB.Close()
 }
 
-func (sess *Session) DownloadedTracks() ([]*DownloadedTrack, error) {
-	var tracks []*DownloadedTrack
-	seen := make(map[string]bool)
-	for _, ctx := range sess.Lists.Contexts {
-		for _, gid := range ctx.TrackGIDs {
-			uri := TrackURI(gid)
-			if seen[uri] {
-				continue
-			}
-			seen[uri] = true
-
-			trait, err := sess.DB.PlaybackTrait(uri)
-			if errors.Is(err, ErrNotFound) {
-				sess.Logger.Debug("skipping track without playback trait", "uri", uri, "context", ctx.URI)
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			t := &DownloadedTrack{URI: uri}
-			for _, file := range AudioFiles(trait) {
-				if rec, ok := sess.Index.Lookup(file.GetFileId()); ok {
-					t.File, t.Record = file, rec
-					break
+func (sess *Session) DownloadedTracks() iter.Seq2[*DownloadedTrack, error] {
+	return func(yield func(*DownloadedTrack, error) bool) {
+		seen := make(map[string]struct{})
+		for _, ctx := range sess.Lists.Contexts {
+			for _, gid := range ctx.TrackGIDs {
+				if _, dup := seen[string(gid)]; dup {
+					continue
+				}
+				seen[string(gid)] = struct{}{}
+				t, err := sess.downloadedTrack(TrackURI(gid), ctx.URI)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if t != nil && !yield(t, nil) {
+					return
 				}
 			}
-			if t.Record == nil {
-				sess.Logger.Debug("skipping track with no stored audio file", "uri", uri, "context", ctx.URI)
-				continue
-			}
-			t.Key, t.HasKey = sess.Keys[t.Record.ID]
-
-			t.Track, err = sess.DB.Track(uri)
-			if errors.Is(err, ErrNotFound) {
-				t.Track = nil
-			} else if err != nil {
-				return nil, err
-			}
-			sess.Logger.Debug("found downloaded track",
-				"uri", uri,
-				"format", t.File.GetFormat(),
-				"file_id", fmt.Sprintf("%x", t.Record.ID),
-				"path", sess.Index.FilePath(t.Record),
-				"has_key", t.HasKey,
-				"has_metadata", t.Track != nil,
-			)
-			tracks = append(tracks, t)
 		}
 	}
-	return tracks, nil
+}
+
+func (sess *Session) downloadedTrack(uri, contextURI string) (*DownloadedTrack, error) {
+	trait, err := sess.DB.PlaybackTrait(uri)
+	if errors.Is(err, ErrNotFound) {
+		sess.Logger.Debug("skipping track without playback trait", "uri", uri, "context", contextURI)
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	t := &DownloadedTrack{URI: uri}
+	for _, file := range AudioFiles(trait) {
+		if rec, ok := sess.Index.Lookup(file.GetFileId()); ok {
+			t.File, t.Record = file, rec
+			break
+		}
+	}
+	if t.Record == nil {
+		sess.Logger.Debug("skipping track with no stored audio file", "uri", uri, "context", contextURI)
+		return nil, nil
+	}
+	t.Key, t.HasKey = sess.Keys[t.Record.ID]
+
+	t.Track, err = sess.DB.Track(uri)
+	if errors.Is(err, ErrNotFound) {
+		t.Track = nil
+	} else if err != nil {
+		return nil, err
+	}
+	sess.Logger.Debug("found downloaded track",
+		"uri", uri,
+		"format", t.File.GetFormat(),
+		"file_id", fmt.Sprintf("%x", t.Record.ID),
+		"path", sess.Index.FilePath(t.Record),
+		"has_key", t.HasKey,
+		"has_metadata", t.Track != nil,
+	)
+	return t, nil
 }
 
 var ErrExists = errors.New("output file already exists")
