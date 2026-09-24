@@ -122,6 +122,7 @@ func runSync(args []string) {
 	flags := flag.NewFlagSet("sync", flag.ExitOnError)
 	src := addSourceFlags(flags)
 	overwrite := flags.Bool("overwrite", false, "re-export tracks whose output files already exist")
+	fetchArtwork := flags.Bool("fetch-artwork", false, "download cover art from spotify's image CDN when none is cached locally")
 	watch := flags.Bool("watch", false, "after syncing, keep running and sync again whenever spotify finishes a download")
 	flags.Usage = func() {
 		fmt.Fprintf(flags.Output(), "usage: %s sync [flags] <out-dir>\n", os.Args[0])
@@ -134,10 +135,11 @@ func runSync(args []string) {
 	}
 
 	syncer := &secondfloor.Syncer{
-		Source:     src.source(),
-		HMACSecret: []byte(requireEnv("SECONDFLOOR_HMAC_SECRET")),
-		OutDir:     flags.Arg(0),
-		Overwrite:  *overwrite,
+		Source:       src.source(),
+		HMACSecret:   []byte(requireEnv("SECONDFLOOR_HMAC_SECRET")),
+		OutDir:       flags.Arg(0),
+		Overwrite:    *overwrite,
+		FetchArtwork: *fetchArtwork,
 	}
 	if !*watch {
 		if _, err := syncer.Sync(); err != nil {

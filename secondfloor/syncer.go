@@ -6,11 +6,12 @@ import (
 )
 
 type Syncer struct {
-	Source     *Source
-	HMACSecret []byte
-	OutDir     string
-	Overwrite  bool
-	Logger     *slog.Logger
+	Source       *Source
+	HMACSecret   []byte
+	OutDir       string
+	Overwrite    bool
+	FetchArtwork bool
+	Logger       *slog.Logger
 
 	synced bool
 	done   map[string]FileID
@@ -40,6 +41,7 @@ func (s *Syncer) Sync() (SyncResult, error) {
 	}
 	defer sess.Close()
 	sess.Logger = logger
+	sess.FetchArtwork = s.FetchArtwork
 
 	seen := make(map[string]struct{})
 	for _, ctx := range sess.Lists.Contexts {

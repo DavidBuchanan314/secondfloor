@@ -14,12 +14,16 @@ import (
 )
 
 type Session struct {
-	Source *Source
-	Index  *StorageIndex
-	Lists  *OfflineLists
-	Keys   map[FileID]ContentKey
-	Logger *slog.Logger
-	db     *DB
+	Source       *Source
+	Index        *StorageIndex
+	Lists        *OfflineLists
+	Keys         map[FileID]ContentKey
+	Logger       *slog.Logger
+	FetchArtwork bool
+	db           *DB
+
+	lastCoverID string
+	lastCover   []byte
 }
 
 type DownloadedTrack struct {
@@ -162,12 +166,12 @@ func (sess *Session) Export(t *DownloadedTrack, outDir string, overwrite bool) (
 			return "", err
 		}
 	}
-	cover, err := sess.Index.CoverImage(t.Track.GetAlbum())
+	cover, err := sess.cover(t.Track.GetAlbum())
 	if err != nil {
 		return "", err
 	}
 	if cover == nil {
-		sess.Logger.Debug("no cached cover", "uri", t.URI)
+		sess.Logger.Debug("no cover", "uri", t.URI)
 	} else {
 		sess.Logger.Debug("using cover", "uri", t.URI, "bytes", len(cover))
 	}
@@ -180,4 +184,28 @@ func (sess *Session) Export(t *DownloadedTrack, outDir string, overwrite bool) (
 		return "", err
 	}
 	return dst, nil
+}
+
+func (sess *Session) cover(album *metadatapb.Album) ([]byte, error) {
+	cached, err := sess.Index.CachedCover(album)
+	if err != nil || cached != nil {
+		return cached, err
+	}
+	images := coverImages(album)
+	if !sess.FetchArtwork || len(images) == 0 {
+		return nil, nil
+	}
+	id := images[0].GetFileId()
+	if string(id) == sess.lastCoverID {
+		return sess.lastCover, nil
+	}
+	data, err := DownloadCover(id)
+	if err != nil {
+		sess.Logger.Warn("could not download cover", "album", album.GetName(), "err", err)
+		data = nil
+	} else {
+		sess.Logger.Debug("downloaded cover", "album", album.GetName(), "image", fmt.Sprintf("%x", id), "bytes", len(data))
+	}
+	sess.lastCoverID, sess.lastCover = string(id), data
+	return data, nil
 }
