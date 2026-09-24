@@ -117,7 +117,7 @@ func decryptStorageRecord(block cipher.Block, slot int, ciphertext []byte) (*Sto
 	cipher.NewCBCDecrypter(block, iv[:aes.BlockSize]).CryptBlocks(plain, ciphertext)
 
 	if !bytes.Equal(plain[0x04:0x08], storageTag) {
-		return nil, errors.New("bad tag")
+		return nil, errors.New("bad tag (is SECONDFLOOR_HMAC_SECRET set correctly?)")
 	}
 	if sum := binary.BigEndian.Uint32(plain[0x00:]); sum != adler32.Checksum(plain[0x04:]) {
 		return nil, errors.New("bad checksum")
