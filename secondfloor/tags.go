@@ -62,7 +62,7 @@ func (idx *StorageIndex) CoverImage(album *metadatapb.Album) ([]byte, error) {
 		return images[i].GetWidth() > images[j].GetWidth()
 	})
 	for _, img := range images {
-		rec, ok := idx.Lookup(img.GetFileId())
+		rec, ok := idx.Lookup(img.GetFileId(), RealmImage)
 		if !ok {
 			continue
 		}

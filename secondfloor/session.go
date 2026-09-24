@@ -113,7 +113,7 @@ func (sess *Session) LookupTrack(gid []byte, contextURI string) (*DownloadedTrac
 	}
 	t := &DownloadedTrack{GID: gid, URI: uri}
 	for _, file := range AudioFiles(trait) {
-		if rec, ok := sess.Index.Lookup(file.GetFileId()); ok {
+		if rec, ok := sess.Index.Lookup(file.GetFileId(), RealmAudio); ok {
 			t.File, t.Record = file, rec
 			break
 		}

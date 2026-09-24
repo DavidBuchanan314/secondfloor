@@ -29,6 +29,16 @@ var (
 
 type FileID [20]byte
 
+const (
+	RealmAudio byte = 0
+	RealmImage byte = 1
+)
+
+type StorageKey struct {
+	ID    FileID
+	Realm byte
+}
+
 type StorageIndex struct {
 	CacheID      [16]byte
 	Salt         [4]byte
@@ -39,7 +49,7 @@ type StorageIndex struct {
 	Key          [16]byte
 	NamePrefix   [20]byte
 	Records      []*StorageRecord
-	ByID         map[FileID]*StorageRecord
+	ByKey        map[StorageKey]*StorageRecord
 	FileDirs     []string
 }
 
@@ -73,7 +83,7 @@ func ReadStorageIndex(storageDir string, hmacSecret []byte) (*StorageIndex, erro
 		Version:      binary.BigEndian.Uint32(data[0x28:]),
 		CreateTime:   beTime(data[0x100:]),
 		LastSaveTime: beTime(data[0x118:]),
-		ByID:         make(map[FileID]*StorageRecord),
+		ByKey:        make(map[StorageKey]*StorageRecord),
 		FileDirs:     []string{storageDir},
 	}
 	copy(idx.CacheID[:], data[0x10:0x20])
@@ -100,11 +110,12 @@ func ReadStorageIndex(storageDir string, hmacSecret []byte) (*StorageIndex, erro
 		if err != nil {
 			return nil, fmt.Errorf("index.dat record %d: %w", slot, err)
 		}
-		if _, dup := idx.ByID[rec.ID]; dup {
-			return nil, fmt.Errorf("index.dat record %d: duplicate id %x", slot, rec.ID)
+		key := StorageKey{ID: rec.ID, Realm: rec.Realm}
+		if _, dup := idx.ByKey[key]; dup {
+			return nil, fmt.Errorf("index.dat record %d: duplicate id %x in realm %d", slot, rec.ID, rec.Realm)
 		}
 		idx.Records = append(idx.Records, rec)
-		idx.ByID[rec.ID] = rec
+		idx.ByKey[key] = rec
 	}
 	return idx, nil
 }
@@ -138,11 +149,11 @@ func decryptStorageRecord(block cipher.Block, slot int, ciphertext []byte) (*Sto
 	return rec, nil
 }
 
-func (idx *StorageIndex) Lookup(fileID []byte) (*StorageRecord, bool) {
+func (idx *StorageIndex) Lookup(fileID []byte, realm byte) (*StorageRecord, bool) {
 	if len(fileID) != len(FileID{}) {
 		return nil, false
 	}
-	rec, ok := idx.ByID[FileID(fileID)]
+	rec, ok := idx.ByKey[StorageKey{ID: FileID(fileID), Realm: realm}]
 	return rec, ok
 }
 
