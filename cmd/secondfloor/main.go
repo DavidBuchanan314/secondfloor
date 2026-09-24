@@ -7,9 +7,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/DavidBuchanan314/secondfloor/secondfloor"
+	"github.com/fsnotify/fsnotify"
 	"github.com/joho/godotenv"
 )
 
@@ -29,7 +32,7 @@ func addSourceFlags(flags *flag.FlagSet) sourceFlags {
 	}
 }
 
-func (f sourceFlags) open() *secondfloor.Session {
+func (f sourceFlags) source() *secondfloor.Source {
 	if *f.verbose {
 		logLevel.Set(slog.LevelDebug)
 	}
@@ -44,11 +47,7 @@ func (f sourceFlags) open() *secondfloor.Session {
 	if err := source.Validate(); err != nil {
 		fatal(err)
 	}
-	sess, err := source.Open([]byte(requireEnv("SECONDFLOOR_HMAC_SECRET")))
-	if err != nil {
-		fatal(err)
-	}
-	return sess
+	return source
 }
 
 var logLevel = new(slog.LevelVar)
@@ -94,7 +93,10 @@ func runList(args []string) {
 		os.Exit(2)
 	}
 
-	sess := src.open()
+	sess, err := src.source().Open([]byte(requireEnv("SECONDFLOOR_HMAC_SECRET")))
+	if err != nil {
+		fatal(err)
+	}
 	defer sess.Close()
 	for t, err := range sess.DownloadedTracks() {
 		if err != nil {
@@ -120,6 +122,7 @@ func runSync(args []string) {
 	flags := flag.NewFlagSet("sync", flag.ExitOnError)
 	src := addSourceFlags(flags)
 	overwrite := flags.Bool("overwrite", false, "re-export tracks whose output files already exist")
+	watch := flags.Bool("watch", false, "after syncing, keep running and sync again whenever spotify finishes a download")
 	flags.Usage = func() {
 		fmt.Fprintf(flags.Output(), "usage: %s sync [flags] <out-dir>\n", os.Args[0])
 		flags.PrintDefaults()
@@ -129,24 +132,70 @@ func runSync(args []string) {
 		flags.Usage()
 		os.Exit(2)
 	}
-	outDir := flags.Arg(0)
 
-	sess := src.open()
-	defer sess.Close()
-	for t, err := range sess.DownloadedTracks() {
-		if err != nil {
+	syncer := &secondfloor.Syncer{
+		Source:     src.source(),
+		HMACSecret: []byte(requireEnv("SECONDFLOOR_HMAC_SECRET")),
+		OutDir:     flags.Arg(0),
+		Overwrite:  *overwrite,
+	}
+	if !*watch {
+		if _, err := syncer.Sync(); err != nil {
 			fatal(err)
 		}
-		dst, err := sess.Export(t, outDir, *overwrite)
-		if errors.Is(err, secondfloor.ErrExists) {
-			slog.Debug("already exported", "uri", t.URI, "path", dst)
-			continue
+		return
+	}
+	if err := watchAndSync(syncer); err != nil {
+		fatal(err)
+	}
+}
+
+const watchSettle = time.Second
+
+func watchAndSync(syncer *secondfloor.Syncer) error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	defer watcher.Close()
+	if err := watcher.Add(syncer.Source.UserDir); err != nil {
+		return err
+	}
+
+	runSync := func() {
+		result, err := syncer.Sync()
+		switch {
+		case err != nil:
+			slog.Warn("sync failed", "err", err)
+		case result.Exported > 0 || result.Failed > 0:
+			slog.Info("sync finished", "exported", result.Exported, "failed", result.Failed)
+		default:
+			slog.Debug("sync finished, nothing new")
 		}
-		if err != nil {
-			slog.Warn("skipping track", "uri", t.URI, "err", err)
-			continue
+	}
+
+	runSync()
+	slog.Info("watching for downloads", "dir", syncer.Source.UserDir)
+	settle := time.NewTimer(watchSettle)
+	settle.Stop()
+	for {
+		select {
+		case ev, ok := <-watcher.Events:
+			if !ok {
+				return nil
+			}
+			if filepath.Base(ev.Name) == "offline2" && ev.Has(fsnotify.Create) {
+				slog.Debug("offline2 updated")
+				settle.Reset(watchSettle)
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return nil
+			}
+			return err
+		case <-settle.C:
+			runSync()
 		}
-		slog.Info("exported", "uri", t.URI, "path", dst)
 	}
 }
 

@@ -15,14 +15,15 @@ import (
 
 type Session struct {
 	Source *Source
-	DB     *DB
 	Index  *StorageIndex
 	Lists  *OfflineLists
 	Keys   map[FileID]ContentKey
 	Logger *slog.Logger
+	db     *DB
 }
 
 type DownloadedTrack struct {
+	GID    []byte
 	URI    string
 	Track  *metadatapb.Track
 	File   *contentagnosticpb.AudioFile
@@ -44,11 +45,7 @@ func (s *Source) Open(hmacSecret []byte) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := s.OpenDB()
-	if err != nil {
-		return nil, err
-	}
-	sess := &Session{Source: s, DB: db, Index: index, Lists: lists, Keys: keys, Logger: slog.Default()}
+	sess := &Session{Source: s, Index: index, Lists: lists, Keys: keys, Logger: slog.Default()}
 	sess.Logger.Debug("opened source",
 		"user", s.Username,
 		"user_dir", s.UserDir,
@@ -60,8 +57,22 @@ func (s *Source) Open(hmacSecret []byte) (*Session, error) {
 	return sess, nil
 }
 
+func (sess *Session) DB() (*DB, error) {
+	if sess.db == nil {
+		db, err := sess.Source.OpenDB()
+		if err != nil {
+			return nil, err
+		}
+		sess.db = db
+	}
+	return sess.db, nil
+}
+
 func (sess *Session) Close() error {
-	return sess.DB.Close()
+	if sess.db == nil {
+		return nil
+	}
+	return sess.db.Close()
 }
 
 func (sess *Session) DownloadedTracks() iter.Seq2[*DownloadedTrack, error] {
@@ -73,7 +84,7 @@ func (sess *Session) DownloadedTracks() iter.Seq2[*DownloadedTrack, error] {
 					continue
 				}
 				seen[string(gid)] = struct{}{}
-				t, err := sess.downloadedTrack(TrackURI(gid), ctx.URI)
+				t, err := sess.LookupTrack(gid, ctx.URI)
 				if err != nil {
 					yield(nil, err)
 					return
@@ -86,8 +97,13 @@ func (sess *Session) DownloadedTracks() iter.Seq2[*DownloadedTrack, error] {
 	}
 }
 
-func (sess *Session) downloadedTrack(uri, contextURI string) (*DownloadedTrack, error) {
-	trait, err := sess.DB.PlaybackTrait(uri)
+func (sess *Session) LookupTrack(gid []byte, contextURI string) (*DownloadedTrack, error) {
+	db, err := sess.DB()
+	if err != nil {
+		return nil, err
+	}
+	uri := TrackURI(gid)
+	trait, err := db.PlaybackTrait(uri)
 	if errors.Is(err, ErrNotFound) {
 		sess.Logger.Debug("skipping track without playback trait", "uri", uri, "context", contextURI)
 		return nil, nil
@@ -95,7 +111,7 @@ func (sess *Session) downloadedTrack(uri, contextURI string) (*DownloadedTrack, 
 	if err != nil {
 		return nil, err
 	}
-	t := &DownloadedTrack{URI: uri}
+	t := &DownloadedTrack{GID: gid, URI: uri}
 	for _, file := range AudioFiles(trait) {
 		if rec, ok := sess.Index.Lookup(file.GetFileId()); ok {
 			t.File, t.Record = file, rec
@@ -108,7 +124,7 @@ func (sess *Session) downloadedTrack(uri, contextURI string) (*DownloadedTrack, 
 	}
 	t.Key, t.HasKey = sess.Keys[t.Record.ID]
 
-	t.Track, err = sess.DB.Track(uri)
+	t.Track, err = db.Track(uri)
 	if errors.Is(err, ErrNotFound) {
 		t.Track = nil
 	} else if err != nil {
