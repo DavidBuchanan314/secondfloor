@@ -1,8 +1,10 @@
 package secondfloor
 
 import (
+	"bufio"
 	"crypto/aes"
 	"crypto/cipher"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/collectionpb"
+	"github.com/DavidBuchanan314/secondfloor/secondfloor/contentagnosticpb"
 )
 
 func SanitizePathComponent(s string) string {
@@ -29,12 +32,29 @@ func SanitizePathComponent(s string) string {
 	return s
 }
 
-func TrackOutputPath(outDir string, track *collectionpb.CollectionTrackEntry) string {
+func FormatExtension(format contentagnosticpb.Format) (string, bool) {
+	name := format.String()
+	switch {
+	case strings.HasPrefix(name, "OGG_VORBIS_"):
+		return ".ogg", true
+	case strings.HasPrefix(name, "MP3_"):
+		return ".mp3", true
+	case strings.HasPrefix(name, "FLAC_FLAC"):
+		return ".flac", true
+	case strings.HasPrefix(name, "MP4_"), strings.Contains(name, "AAC_"):
+		return ".m4a", true
+	case strings.HasPrefix(name, "WAV_"):
+		return ".wav", true
+	}
+	return "", false
+}
+
+func TrackOutputPath(outDir string, track *collectionpb.CollectionTrackEntry, ext string) string {
 	artist := ""
 	if names := track.GetArtistName(); len(names) > 0 {
 		artist = names[0]
 	}
-	name := fmt.Sprintf("%02d_%s.flac", track.GetTrackNumber(), track.GetTrackName())
+	name := fmt.Sprintf("%02d_%s%s", track.GetTrackNumber(), track.GetTrackName(), ext)
 	return filepath.Join(
 		outDir,
 		SanitizePathComponent(artist),
@@ -43,7 +63,7 @@ func TrackOutputPath(outDir string, track *collectionpb.CollectionTrackEntry) st
 	)
 }
 
-func (idx *StorageIndex) DecryptFile(rec *StorageRecord, contentKey ContentKey, audioIV []byte, dstPath string) error {
+func (idx *StorageIndex) DecryptFile(rec *StorageRecord, format contentagnosticpb.Format, contentKey ContentKey, audioIV []byte, dstPath string) error {
 	src, err := os.Open(idx.FilePath(rec))
 	if err != nil {
 		return err
@@ -58,20 +78,54 @@ func (idx *StorageIndex) DecryptFile(rec *StorageRecord, contentKey ContentKey, 
 	if err != nil {
 		return err
 	}
-	var r io.Reader = io.LimitReader(src, int64(rec.ContentLength))
-	r = cipher.StreamReader{S: cipher.NewCTR(storageBlock, rec.StorageIV()), R: r}
+	limited := &io.LimitedReader{R: src, N: int64(rec.ContentLength)}
+	var r io.Reader = cipher.StreamReader{S: cipher.NewCTR(storageBlock, rec.StorageIV()), R: limited}
 	r = cipher.StreamReader{S: cipher.NewCTR(contentBlock, audioIV), R: r}
 
+	if ext, _ := FormatExtension(format); ext == ".ogg" {
+		br := bufio.NewReader(r)
+		if err := skipSpotifyOggPage(br); err != nil {
+			return fmt.Errorf("%s: %w", idx.FilePath(rec), err)
+		}
+		r = br
+	}
+
 	return writeFileAtomic(dstPath, func(w io.Writer) error {
-		n, err := io.Copy(w, r)
-		if err != nil {
+		if _, err := io.Copy(w, r); err != nil {
 			return err
 		}
-		if n != int64(rec.ContentLength) {
-			return fmt.Errorf("%s: read %d of %d content bytes", idx.FilePath(rec), n, rec.ContentLength)
+		if limited.N != 0 {
+			return fmt.Errorf("%s: missing %d of %d content bytes", idx.FilePath(rec), limited.N, rec.ContentLength)
 		}
 		return nil
 	})
+}
+
+func skipSpotifyOggPage(r *bufio.Reader) error {
+	const headerSize = 27
+	header, err := r.Peek(headerSize)
+	if err != nil {
+		return err
+	}
+	if string(header[:4]) != "OggS" || header[5]&0x06 != 0x06 {
+		return errors.New("first ogg page is not a spotify header page")
+	}
+	segments := int(header[26])
+	full, err := r.Peek(headerSize + segments)
+	if err != nil {
+		return err
+	}
+	pageSize := headerSize + segments
+	for _, n := range full[headerSize:] {
+		pageSize += int(n)
+	}
+	if _, err := r.Discard(pageSize); err != nil {
+		return err
+	}
+	if next, err := r.Peek(4); err != nil || string(next) != "OggS" {
+		return errors.New("no ogg page after spotify header page")
+	}
+	return nil
 }
 
 func writeFileAtomic(dstPath string, write func(io.Writer) error) (err error) {

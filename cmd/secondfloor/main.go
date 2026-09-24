@@ -54,6 +54,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+	storage.FileDirs = append(storage.FileDirs, filepath.Join(userDir, "..", "..", "Data"))
 
 	db, err := secondfloor.OpenDB(filepath.Join(userDir, "primary.ldb"))
 	if err != nil {
@@ -111,8 +112,13 @@ func main() {
 						fmt.Printf("\t\t(no content key)\n")
 						continue
 					}
-					dst := secondfloor.TrackOutputPath(outDir, track)
-					if err := storage.DecryptFile(rec, key, audioIV, dst); err != nil {
+					ext, ok := secondfloor.FormatExtension(file.GetFormat())
+					if !ok {
+						fmt.Printf("\t\t(unsupported format)\n")
+						continue
+					}
+					dst := secondfloor.TrackOutputPath(outDir, track, ext)
+					if err := storage.DecryptFile(rec, file.GetFormat(), key, audioIV, dst); err != nil {
 						fmt.Fprintf(os.Stderr, "error: %v\n", err)
 						os.Exit(1)
 					}

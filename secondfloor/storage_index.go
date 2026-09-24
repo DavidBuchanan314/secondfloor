@@ -40,7 +40,7 @@ type StorageIndex struct {
 	NamePrefix   [20]byte
 	Records      []*StorageRecord
 	ByID         map[FileID]*StorageRecord
-	storageDir   string
+	FileDirs     []string
 }
 
 type StorageRecord struct {
@@ -74,7 +74,7 @@ func ReadStorageIndex(storageDir string, hmacSecret []byte) (*StorageIndex, erro
 		CreateTime:   beTime(data[0x100:]),
 		LastSaveTime: beTime(data[0x118:]),
 		ByID:         make(map[FileID]*StorageRecord),
-		storageDir:   storageDir,
+		FileDirs:     []string{storageDir},
 	}
 	copy(idx.CacheID[:], data[0x10:0x20])
 	copy(idx.Salt[:], data[0x20:0x24])
@@ -165,7 +165,14 @@ func (idx *StorageIndex) FileName(rec *StorageRecord) string {
 
 func (idx *StorageIndex) FilePath(rec *StorageRecord) string {
 	name := idx.FileName(rec)
-	return filepath.Join(idx.storageDir, name[:2], name+".file")
+	rel := filepath.Join(name[:2], name+".file")
+	for _, dir := range idx.FileDirs {
+		path := filepath.Join(dir, rel)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return filepath.Join(idx.FileDirs[0], rel)
 }
 
 func beTime(b []byte) time.Time {
