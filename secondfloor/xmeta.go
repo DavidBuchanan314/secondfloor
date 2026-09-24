@@ -5,12 +5,16 @@ import (
 	"strings"
 
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/contentagnosticpb"
+	"github.com/DavidBuchanan314/secondfloor/secondfloor/metadatapb"
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/xmetapb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-var playbackTraitExtension = []byte{0xe0, 0xd4}
+var (
+	trackExtension         = []byte{0x2a}
+	playbackTraitExtension = []byte{0xe0, 0xd4}
+)
 
 func (db *DB) xmetaCache(extension []byte, uri string, m proto.Message) error {
 	value, err := db.ldb.Get(GreenbaseKey("!xmeta#cache#", extension, []byte(uri)), nil)
@@ -40,6 +44,14 @@ func (db *DB) PlaybackTrait(trackURI string) (*contentagnosticpb.PlaybackTrait, 
 		return nil, err
 	}
 	return trait, nil
+}
+
+func (db *DB) Track(trackURI string) (*metadatapb.Track, error) {
+	track := &metadatapb.Track{}
+	if err := db.xmetaCache(trackExtension, trackURI, track); err != nil {
+		return nil, err
+	}
+	return track, nil
 }
 
 func AudioFiles(trait *contentagnosticpb.PlaybackTrait) []*contentagnosticpb.AudioFile {

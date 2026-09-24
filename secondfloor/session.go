@@ -2,9 +2,14 @@ package secondfloor
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"log/slog"
+	"os"
 
-	"github.com/DavidBuchanan314/secondfloor/secondfloor/collectionpb"
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/contentagnosticpb"
+	"github.com/DavidBuchanan314/secondfloor/secondfloor/metadatapb"
 )
 
 type Session struct {
@@ -13,11 +18,12 @@ type Session struct {
 	Index  *StorageIndex
 	Lists  *OfflineLists
 	Keys   map[FileID]ContentKey
+	Logger *slog.Logger
 }
 
 type DownloadedTrack struct {
 	URI    string
-	Track  *collectionpb.CollectionTrackEntry
+	Track  *metadatapb.Track
 	File   *contentagnosticpb.AudioFile
 	Record *StorageRecord
 	Key    ContentKey
@@ -41,7 +47,16 @@ func (s *Source) Open(hmacSecret []byte) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Session{Source: s, DB: db, Index: index, Lists: lists, Keys: keys}, nil
+	sess := &Session{Source: s, DB: db, Index: index, Lists: lists, Keys: keys, Logger: slog.Default()}
+	sess.Logger.Debug("opened source",
+		"user", s.Username,
+		"user_dir", s.UserDir,
+		"storage_dir", s.StorageDir,
+		"index_records", len(index.Records),
+		"content_keys", len(keys),
+		"contexts", len(lists.Contexts),
+	)
+	return sess, nil
 }
 
 func (sess *Session) Close() error {
@@ -61,6 +76,7 @@ func (sess *Session) DownloadedTracks() ([]*DownloadedTrack, error) {
 
 			trait, err := sess.DB.PlaybackTrait(uri)
 			if errors.Is(err, ErrNotFound) {
+				sess.Logger.Debug("skipping track without playback trait", "uri", uri, "context", ctx.URI)
 				continue
 			}
 			if err != nil {
@@ -74,25 +90,36 @@ func (sess *Session) DownloadedTracks() ([]*DownloadedTrack, error) {
 				}
 			}
 			if t.Record == nil {
+				sess.Logger.Debug("skipping track with no stored audio file", "uri", uri, "context", ctx.URI)
 				continue
 			}
 			t.Key, t.HasKey = sess.Keys[t.Record.ID]
 
-			t.Track, err = sess.DB.CollectionTrack(uri)
+			t.Track, err = sess.DB.Track(uri)
 			if errors.Is(err, ErrNotFound) {
 				t.Track = nil
 			} else if err != nil {
 				return nil, err
 			}
+			sess.Logger.Debug("found downloaded track",
+				"uri", uri,
+				"format", t.File.GetFormat(),
+				"file_id", fmt.Sprintf("%x", t.Record.ID),
+				"path", sess.Index.FilePath(t.Record),
+				"has_key", t.HasKey,
+				"has_metadata", t.Track != nil,
+			)
 			tracks = append(tracks, t)
 		}
 	}
 	return tracks, nil
 }
 
-func (sess *Session) Export(t *DownloadedTrack, outDir string) (string, error) {
+var ErrExists = errors.New("output file already exists")
+
+func (sess *Session) Export(t *DownloadedTrack, outDir string, overwrite bool) (string, error) {
 	if t.Track == nil {
-		return "", errors.New("no collection metadata")
+		return "", errors.New("no track metadata")
 	}
 	if !t.HasKey {
 		return "", errors.New("no content key")
@@ -102,7 +129,28 @@ func (sess *Session) Export(t *DownloadedTrack, outDir string) (string, error) {
 		return "", errors.New("unsupported format " + t.File.GetFormat().String())
 	}
 	dst := TrackOutputPath(outDir, t.Track, ext)
-	if err := sess.Index.DecryptFile(t.Record, t.File.GetFormat(), t.Key, dst); err != nil {
+	if !overwrite {
+		if _, err := os.Stat(dst); err == nil {
+			return dst, ErrExists
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+	}
+	cover, err := sess.Index.CoverImage(t.Track.GetAlbum())
+	if err != nil {
+		return "", err
+	}
+	if cover == nil {
+		sess.Logger.Debug("no cached cover", "uri", t.URI)
+	} else {
+		sess.Logger.Debug("using cover", "uri", t.URI, "bytes", len(cover))
+	}
+	err = writeFileAtomic(dst, func(w io.Writer) error {
+		return sess.Index.DecryptAudio(t.Record, t.File.GetFormat(), t.Key, w)
+	}, func(path string) error {
+		return writeTags(path, t.Track, cover)
+	})
+	if err != nil {
 		return "", err
 	}
 	return dst, nil

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/DavidBuchanan314/secondfloor/secondfloor/collectionpb"
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/contentagnosticpb"
+	"github.com/DavidBuchanan314/secondfloor/secondfloor/metadatapb"
 )
 
 func SanitizePathComponent(s string) string {
@@ -37,35 +37,36 @@ func FormatExtension(format contentagnosticpb.Format) (string, bool) {
 	switch {
 	case strings.HasPrefix(name, "OGG_VORBIS_"):
 		return ".ogg", true
-	case strings.HasPrefix(name, "MP3_"):
-		return ".mp3", true
 	case strings.HasPrefix(name, "FLAC_FLAC"):
 		return ".flac", true
-	case strings.HasPrefix(name, "MP4_"), strings.Contains(name, "AAC_"):
-		return ".m4a", true
-	case strings.HasPrefix(name, "WAV_"):
-		return ".wav", true
 	}
 	return "", false
 }
 
-func TrackOutputPath(outDir string, track *collectionpb.CollectionTrackEntry, ext string) string {
-	artist := ""
-	if names := track.GetArtistName(); len(names) > 0 {
-		artist = names[0]
+func TrackOutputPath(outDir string, track *metadatapb.Track, ext string) string {
+	artists := track.GetAlbum().GetArtist()
+	if len(artists) == 0 {
+		artists = track.GetArtist()
 	}
-	name := fmt.Sprintf("%02d_%s%s", track.GetTrackNumber(), track.GetTrackName(), ext)
+	var names []string
+	for _, a := range artists {
+		names = append(names, a.GetName())
+	}
+	number := fmt.Sprintf("%02d", track.GetNumber())
+	if disc := track.GetDiscNumber(); disc > 1 {
+		number = fmt.Sprintf("%d-%s", disc, number)
+	}
 	return filepath.Join(
 		outDir,
-		SanitizePathComponent(artist),
-		SanitizePathComponent(track.GetAlbumName()),
-		SanitizePathComponent(name),
+		SanitizePathComponent(strings.Join(names, ", ")),
+		SanitizePathComponent(track.GetAlbum().GetName()),
+		SanitizePathComponent(number+"_"+track.GetName()+ext),
 	)
 }
 
 var audioIV = []byte{0x72, 0xe0, 0x67, 0xfb, 0xdd, 0xcb, 0xcf, 0x77, 0xeb, 0xe8, 0xbc, 0x64, 0x3f, 0x63, 0x0d, 0x93}
 
-func (idx *StorageIndex) DecryptFile(rec *StorageRecord, format contentagnosticpb.Format, contentKey ContentKey, dstPath string) error {
+func (idx *StorageIndex) DecryptAudio(rec *StorageRecord, format contentagnosticpb.Format, contentKey ContentKey, w io.Writer) error {
 	src, err := os.Open(idx.FilePath(rec))
 	if err != nil {
 		return err
@@ -92,15 +93,26 @@ func (idx *StorageIndex) DecryptFile(rec *StorageRecord, format contentagnosticp
 		r = br
 	}
 
-	return writeFileAtomic(dstPath, func(w io.Writer) error {
-		if _, err := io.Copy(w, r); err != nil {
-			return err
-		}
-		if limited.N != 0 {
-			return fmt.Errorf("%s: missing %d of %d content bytes", idx.FilePath(rec), limited.N, rec.ContentLength)
-		}
-		return nil
-	})
+	if _, err := io.Copy(w, r); err != nil {
+		return err
+	}
+	if limited.N != 0 {
+		return fmt.Errorf("%s: missing %d of %d content bytes", idx.FilePath(rec), limited.N, rec.ContentLength)
+	}
+	return nil
+}
+
+func (idx *StorageIndex) ReadPlainFile(rec *StorageRecord) ([]byte, error) {
+	f, err := os.Open(idx.FilePath(rec))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data := make([]byte, rec.ContentLength)
+	if _, err := io.ReadFull(f, data); err != nil {
+		return nil, fmt.Errorf("%s: %w", idx.FilePath(rec), err)
+	}
+	return data, nil
 }
 
 func skipSpotifyOggPage(r *bufio.Reader) error {
@@ -130,11 +142,11 @@ func skipSpotifyOggPage(r *bufio.Reader) error {
 	return nil
 }
 
-func writeFileAtomic(dstPath string, write func(io.Writer) error) (err error) {
+func writeFileAtomic(dstPath string, write func(io.Writer) error, finalize func(path string) error) (err error) {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dstPath), ".secondfloor-*")
+	tmp, err := os.CreateTemp(filepath.Dir(dstPath), ".secondfloor-*"+filepath.Ext(dstPath))
 	if err != nil {
 		return err
 	}
@@ -148,6 +160,9 @@ func writeFileAtomic(dstPath string, write func(io.Writer) error) (err error) {
 		return err
 	}
 	if err = tmp.Close(); err != nil {
+		return err
+	}
+	if err = finalize(tmp.Name()); err != nil {
 		return err
 	}
 	return os.Rename(tmp.Name(), dstPath)

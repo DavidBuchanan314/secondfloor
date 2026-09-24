@@ -3,10 +3,8 @@ package secondfloor
 import (
 	"encoding/binary"
 
-	"github.com/DavidBuchanan314/secondfloor/secondfloor/collectionpb"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
-	"google.golang.org/protobuf/proto"
 )
 
 var ErrNotFound = leveldb.ErrNotFound
@@ -43,18 +41,6 @@ func (db *DB) ListKeys() ([][]byte, error) {
 		return nil, err
 	}
 	return keys, nil
-}
-
-func (db *DB) CollectionTrack(trackURI string) (*collectionpb.CollectionTrackEntry, error) {
-	value, err := db.ldb.Get(GreenbaseKey("!col#col.albtrk#", []byte(trackURI)), nil)
-	if err != nil {
-		return nil, err
-	}
-	entry := &collectionpb.CollectionTrackEntry{}
-	if err := proto.Unmarshal(value, entry); err != nil {
-		return nil, err
-	}
-	return entry, nil
 }
 
 func GreenbaseKey(prefix string, tokens ...[]byte) []byte {

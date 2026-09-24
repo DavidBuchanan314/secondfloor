@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -16,6 +17,7 @@ type sourceFlags struct {
 	cacheDir   *string
 	username   *string
 	storageDir *string
+	verbose    *bool
 }
 
 func addSourceFlags(flags *flag.FlagSet) sourceFlags {
@@ -23,10 +25,14 @@ func addSourceFlags(flags *flag.FlagSet) sourceFlags {
 		cacheDir:   flags.String("spotify-dir", "", "spotify cache directory (default: auto-detect)"),
 		username:   flags.String("user", "", "spotify account (required if there are several)"),
 		storageDir: flags.String("storage", "", "storage directory containing index.dat (default: from spotify prefs)"),
+		verbose:    flags.Bool("v", false, "verbose (debug) logging"),
 	}
 }
 
 func (f sourceFlags) open() *secondfloor.Session {
+	if *f.verbose {
+		logLevel.Set(slog.LevelDebug)
+	}
 	source, err := secondfloor.DiscoverDesktopSource(*f.cacheDir, *f.username)
 	if err != nil {
 		fatal(err)
@@ -45,7 +51,19 @@ func (f sourceFlags) open() *secondfloor.Session {
 	return sess
 }
 
+var logLevel = new(slog.LevelVar)
+
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: logLevel,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if len(groups) == 0 && a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})))
+
 	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		fatal(err)
 	}
@@ -85,7 +103,11 @@ func runList(args []string) {
 	for _, t := range tracks {
 		desc := "(no metadata)"
 		if t.Track != nil {
-			desc = fmt.Sprintf("%s - %s - %02d %s", strings.Join(t.Track.GetArtistName(), ", "), t.Track.GetAlbumName(), t.Track.GetTrackNumber(), t.Track.GetTrackName())
+			var artists []string
+			for _, a := range t.Track.GetArtist() {
+				artists = append(artists, a.GetName())
+			}
+			desc = fmt.Sprintf("%s - %s - %02d %s", strings.Join(artists, ", "), t.Track.GetAlbum().GetName(), t.Track.GetNumber(), t.Track.GetName())
 		}
 		note := ""
 		if !t.HasKey {
@@ -98,6 +120,7 @@ func runList(args []string) {
 func runSync(args []string) {
 	flags := flag.NewFlagSet("sync", flag.ExitOnError)
 	src := addSourceFlags(flags)
+	overwrite := flags.Bool("overwrite", false, "re-export tracks whose output files already exist")
 	flags.Usage = func() {
 		fmt.Fprintf(flags.Output(), "usage: %s sync [flags] <out-dir>\n", os.Args[0])
 		flags.PrintDefaults()
@@ -116,12 +139,16 @@ func runSync(args []string) {
 		fatal(err)
 	}
 	for _, t := range tracks {
-		dst, err := sess.Export(t, outDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skipping %s: %v\n", t.URI, err)
+		dst, err := sess.Export(t, outDir, *overwrite)
+		if errors.Is(err, secondfloor.ErrExists) {
+			slog.Debug("already exported", "uri", t.URI, "path", dst)
 			continue
 		}
-		fmt.Println(dst)
+		if err != nil {
+			slog.Warn("skipping track", "uri", t.URI, "err", err)
+			continue
+		}
+		slog.Info("exported", "uri", t.URI, "path", dst)
 	}
 }
 
@@ -134,6 +161,6 @@ func requireEnv(name string) string {
 }
 
 func fatal(err error) {
-	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	slog.Error(err.Error())
 	os.Exit(1)
 }
