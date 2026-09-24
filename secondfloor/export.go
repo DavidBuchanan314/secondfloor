@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,7 +148,7 @@ func writeFileAtomic(dstPath string, write func(io.Writer) error, finalize func(
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dstPath), ".secondfloor-*"+filepath.Ext(dstPath))
+	tmp, err := createTemp(filepath.Dir(dstPath), filepath.Ext(dstPath))
 	if err != nil {
 		return err
 	}
@@ -166,4 +168,15 @@ func writeFileAtomic(dstPath string, write func(io.Writer) error, finalize func(
 		return err
 	}
 	return os.Rename(tmp.Name(), dstPath)
+}
+
+func createTemp(dir, ext string) (*os.File, error) {
+	for {
+		name := filepath.Join(dir, ".secondfloor-"+rand.Text()+ext)
+		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		return f, err
+	}
 }

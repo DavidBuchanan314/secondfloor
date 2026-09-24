@@ -3,7 +3,7 @@ Description=secondfloor background sync
 
 [Service]
 Type=simple
-Environment="SECONDFLOOR_HMAC_SECRET=..."
+Environment=SECONDFLOOR_HMAC_SECRET="..."
 ExecStart=%h/go/bin/secondfloor sync -watch %h/Music
 Restart=on-failure
 RestartSec=30
