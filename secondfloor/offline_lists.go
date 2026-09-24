@@ -1,6 +1,7 @@
 package secondfloor
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 )
@@ -11,7 +12,15 @@ const (
 	offlineKindTag     = 0x09
 	offlineTracksTag   = 0x0d
 	offlineGIDTag      = 0x01
+	offlineStateTag    = 0x14
+	offlineDeviceTag   = 0x04
+	offlineDeviceIDTag = 0x09
 )
+
+type OfflineLists struct {
+	Contexts []OfflineContext
+	DeviceID string
+}
 
 type OfflineContext struct {
 	URI       string
@@ -19,7 +28,7 @@ type OfflineContext struct {
 	TrackGIDs [][]byte
 }
 
-func OfflineContexts(bnkPath string) ([]OfflineContext, error) {
+func ReadOfflineLists(bnkPath string) (*OfflineLists, error) {
 	data, err := os.ReadFile(bnkPath)
 	if err != nil {
 		return nil, err
@@ -32,7 +41,7 @@ func OfflineContexts(bnkPath string) ([]OfflineContext, error) {
 	if !ok || contexts.Type != BnkList {
 		return nil, fmt.Errorf("no context list in %s", bnkPath)
 	}
-	var out []OfflineContext
+	out := &OfflineLists{}
 	for _, ctx := range contexts.Items {
 		var oc OfflineContext
 		if uri, ok := ctx.Field(offlineURITag); ok && uri.Type == BnkBytes {
@@ -53,7 +62,17 @@ func OfflineContexts(bnkPath string) ([]OfflineContext, error) {
 				oc.TrackGIDs = append(oc.TrackGIDs, gid.Bytes)
 			}
 		}
-		out = append(out, oc)
+		out.Contexts = append(out.Contexts, oc)
+	}
+	if state, ok := root.Field(offlineStateTag); ok {
+		device, _ := state.Field(offlineDeviceTag)
+		if id, ok := device.Field(offlineDeviceIDTag); ok && id.Type == BnkBytes {
+			decoded, err := hex.DecodeString(string(id.Bytes))
+			if err != nil {
+				return nil, fmt.Errorf("device id: %w", err)
+			}
+			out.DeviceID = string(decoded)
+		}
 	}
 	return out, nil
 }
