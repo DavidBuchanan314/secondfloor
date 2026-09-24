@@ -26,6 +26,7 @@ type BnkValue struct {
 }
 
 type BnkField struct {
+	ID    int
 	Tag   byte
 	Value BnkValue
 }
@@ -64,6 +65,7 @@ func (p *bnkParser) varint() (uint64, error) {
 
 func (p *bnkParser) fields(terminated bool) ([]BnkField, error) {
 	var fields []BnkField
+	id := 0
 	for {
 		if !terminated && p.pos == len(p.data) {
 			return fields, nil
@@ -82,7 +84,8 @@ func (p *bnkParser) fields(terminated bool) ([]BnkField, error) {
 		if err != nil {
 			return nil, err
 		}
-		fields = append(fields, BnkField{Tag: tag, Value: v})
+		id += int(tag >> 3)
+		fields = append(fields, BnkField{ID: id, Tag: tag, Value: v})
 	}
 }
 
@@ -129,11 +132,22 @@ func (p *bnkParser) value(t BnkType) (BnkValue, error) {
 	return v, nil
 }
 
-func (v BnkValue) Field(tag byte) (BnkValue, bool) {
+func (v BnkValue) Field(id int) (BnkValue, bool) {
 	for _, f := range v.Fields {
-		if f.Tag == tag {
+		if f.ID == id {
 			return f.Value, true
 		}
 	}
 	return BnkValue{}, false
+}
+
+func (v BnkValue) Repeated(id int) []BnkValue {
+	f, ok := v.Field(id)
+	switch {
+	case !ok:
+		return nil
+	case f.Type == BnkList:
+		return f.Items
+	}
+	return []BnkValue{f}
 }
