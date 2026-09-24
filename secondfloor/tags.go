@@ -56,12 +56,20 @@ func formatDate(d *metadatapb.Date) string {
 	return fmt.Sprintf("%04d-%02d-%02d", d.GetYear(), d.GetMonth(), d.GetDay())
 }
 
-func (idx *StorageIndex) CoverImage(album *metadatapb.Album) ([]byte, error) {
+func coverImages(album *metadatapb.Album) []*metadatapb.Image {
 	images := append(append([]*metadatapb.Image{}, album.GetCoverGroup().GetImage()...), album.GetCover()...)
 	sort.SliceStable(images, func(i, j int) bool {
 		return images[i].GetWidth() > images[j].GetWidth()
 	})
-	for _, img := range images {
+	return images
+}
+
+func isCoverImage(data []byte) bool {
+	return bytes.HasPrefix(data, []byte{0xff, 0xd8, 0xff}) || bytes.HasPrefix(data, []byte("\x89PNG"))
+}
+
+func (idx *StorageIndex) CachedCover(album *metadatapb.Album) ([]byte, error) {
+	for _, img := range coverImages(album) {
 		rec, ok := idx.Lookup(img.GetFileId(), RealmImage)
 		if !ok {
 			continue
@@ -70,7 +78,7 @@ func (idx *StorageIndex) CoverImage(album *metadatapb.Album) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if bytes.HasPrefix(data, []byte{0xff, 0xd8, 0xff}) || bytes.HasPrefix(data, []byte("\x89PNG")) {
+		if isCoverImage(data) {
 			return data, nil
 		}
 	}
