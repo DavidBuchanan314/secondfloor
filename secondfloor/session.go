@@ -187,17 +187,31 @@ func (sess *Session) Export(t *DownloadedTrack, outDir string, overwrite bool) (
 }
 
 func (sess *Session) cover(album *metadatapb.Album) ([]byte, error) {
-	cached, err := sess.Index.CachedCover(album)
-	if err != nil || cached != nil {
-		return cached, err
-	}
 	images := coverImages(album)
-	if !sess.FetchArtwork || len(images) == 0 {
+	if len(images) == 0 {
 		return nil, nil
 	}
-	id := images[0].GetFileId()
+	largest := images[0]
+	if rec, ok := sess.Index.Lookup(largest.GetFileId(), RealmImage); ok {
+		data, err := sess.Index.ReadPlainFile(rec)
+		if err != nil {
+			return nil, err
+		}
+		if isCoverImage(data) {
+			return data, nil
+		}
+	}
+	if sess.FetchArtwork {
+		if data := sess.downloadCover(album, largest.GetFileId()); data != nil {
+			return data, nil
+		}
+	}
+	return sess.Index.CachedCover(album)
+}
+
+func (sess *Session) downloadCover(album *metadatapb.Album, id []byte) []byte {
 	if string(id) == sess.lastCoverID {
-		return sess.lastCover, nil
+		return sess.lastCover
 	}
 	data, err := DownloadCover(id)
 	if err != nil {
@@ -207,5 +221,5 @@ func (sess *Session) cover(album *metadatapb.Album) ([]byte, error) {
 		sess.Logger.Debug("downloaded cover", "album", album.GetName(), "image", fmt.Sprintf("%x", id), "bytes", len(data))
 	}
 	sess.lastCoverID, sess.lastCover = string(id), data
-	return data, nil
+	return data
 }
