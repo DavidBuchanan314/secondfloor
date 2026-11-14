@@ -1,7 +1,6 @@
 package secondfloor
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"strconv"
@@ -64,23 +63,13 @@ func coverImages(album *metadatapb.Album) []*metadatapb.Image {
 	return images
 }
 
-func isCoverImage(data []byte) bool {
-	return bytes.HasPrefix(data, []byte{0xff, 0xd8, 0xff}) || bytes.HasPrefix(data, []byte("\x89PNG"))
-}
-
 func (idx *StorageIndex) CachedCover(album *metadatapb.Album) ([]byte, error) {
 	for _, img := range coverImages(album) {
 		rec, ok := idx.Lookup(img.GetFileId(), RealmImage)
 		if !ok {
 			continue
 		}
-		data, err := idx.ReadPlainFile(rec)
-		if err != nil {
-			return nil, err
-		}
-		if isCoverImage(data) {
-			return data, nil
-		}
+		return idx.ReadPlainFile(rec)
 	}
 	return nil, nil
 }

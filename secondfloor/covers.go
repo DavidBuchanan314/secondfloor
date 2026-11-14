@@ -29,8 +29,5 @@ func DownloadCover(fileID []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cover %x: reading response: %w", fileID, err)
 	}
-	if !isCoverImage(data) {
-		return nil, fmt.Errorf("cover %x is not a jpeg or png", fileID)
-	}
 	return data, nil
 }

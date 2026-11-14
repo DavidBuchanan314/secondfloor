@@ -193,13 +193,7 @@ func (sess *Session) cover(album *metadatapb.Album) ([]byte, error) {
 	}
 	largest := images[0]
 	if rec, ok := sess.Index.Lookup(largest.GetFileId(), RealmImage); ok {
-		data, err := sess.Index.ReadPlainFile(rec)
-		if err != nil {
-			return nil, err
-		}
-		if isCoverImage(data) {
-			return data, nil
-		}
+		return sess.Index.ReadPlainFile(rec)
 	}
 	if sess.FetchArtwork {
 		if data := sess.downloadCover(album, largest.GetFileId()); data != nil {
