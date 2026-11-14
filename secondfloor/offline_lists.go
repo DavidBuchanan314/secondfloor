@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 )
 
 const (
@@ -12,6 +13,7 @@ const (
 	offlineKindField     = 1
 	offlineTracksField   = 2
 	offlineGIDField      = 0
+	offlineItemURIField  = 1
 	offlineStateField    = 3
 	offlineDeviceField   = 0
 	offlineDeviceIDField = 4
@@ -51,6 +53,13 @@ func ReadOfflineLists(bnkPath string) (*OfflineLists, error) {
 		}
 		for _, track := range ctx.Repeated(offlineTracksField) {
 			gid, ok := track.Field(offlineGIDField)
+			if !ok {
+				// Non-track items (e.g. podcast episodes) carry a URI instead of a gid.
+				if uri, ok := track.Field(offlineItemURIField); ok && uri.Type == BnkBytes &&
+					!strings.HasPrefix(string(uri.Bytes), "spotify:track:") {
+					continue
+				}
+			}
 			if !ok || gid.Type != BnkBytes || len(gid.Bytes) != 16 {
 				return nil, fmt.Errorf("%s: context %s has a track entry without a 16-byte gid", bnkPath, oc.URI)
 			}
