@@ -82,6 +82,19 @@ func DesktopInstalls() []DesktopInstall {
 			PrefsPath: filepath.Join(config, "Spotify", "prefs"),
 		}}
 	}
+	if runtime.GOOS == "windows" {
+		cache, cacheErr := os.UserCacheDir()
+		config, configErr := os.UserConfigDir()
+		if cacheErr != nil || configErr != nil {
+			return nil
+		}
+		// microsoft store build, layout unverified
+		store := filepath.Join(cache, "Packages", "SpotifyAB.SpotifyMusic_zpdnekdrzrea0", "LocalState", "Spotify")
+		return []DesktopInstall{
+			{CacheDir: filepath.Join(cache, "Spotify"), PrefsPath: filepath.Join(config, "Spotify", "prefs")},
+			{CacheDir: store, PrefsPath: filepath.Join(store, "prefs")},
+		}
+	}
 	var installs []DesktopInstall
 	if home, err := os.UserHomeDir(); err == nil {
 		installs = append(installs,

@@ -21,6 +21,7 @@ type sourceFlags struct {
 	username   *string
 	storageDir *string
 	verbose    *bool
+	logFile    *string
 }
 
 func addSourceFlags(flags *flag.FlagSet) sourceFlags {
@@ -29,12 +30,20 @@ func addSourceFlags(flags *flag.FlagSet) sourceFlags {
 		username:   flags.String("user", "", "spotify account (required if there are several)"),
 		storageDir: flags.String("storage", "", "storage directory containing index.dat (default: from spotify prefs)"),
 		verbose:    flags.Bool("v", false, "verbose (debug) logging"),
+		logFile:    flags.String("log", "", "append timestamped log lines to this file instead of stderr"),
 	}
 }
 
 func (f sourceFlags) source() *secondfloor.Source {
 	if *f.verbose {
 		logLevel.Set(slog.LevelDebug)
+	}
+	if *f.logFile != "" {
+		file, err := os.OpenFile(*f.logFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+		if err != nil {
+			fatal(fmt.Errorf("opening log file: %w", err))
+		}
+		slog.SetDefault(slog.New(slog.NewTextHandler(file, &slog.HandlerOptions{Level: logLevel})))
 	}
 	source, err := secondfloor.DiscoverDesktopSource(*f.cacheDir, *f.username)
 	if err != nil {
@@ -93,7 +102,7 @@ func runList(args []string) {
 		os.Exit(2)
 	}
 
-	sess, err := src.source().Open([]byte(requireEnv("SECONDFLOOR_HMAC_SECRET")))
+	sess, err := src.source().Open(hmacSecret())
 	if err != nil {
 		fatal(err)
 	}
@@ -136,7 +145,7 @@ func runSync(args []string) {
 
 	syncer := &secondfloor.Syncer{
 		Source:       src.source(),
-		HMACSecret:   []byte(requireEnv("SECONDFLOOR_HMAC_SECRET")),
+		HMACSecret:   hmacSecret(),
 		OutDir:       flags.Arg(0),
 		Overwrite:    *overwrite,
 		FetchArtwork: *fetchArtwork,
@@ -201,12 +210,17 @@ func watchAndSync(syncer *secondfloor.Syncer) error {
 	}
 }
 
-func requireEnv(name string) string {
-	value := os.Getenv(name)
-	if value == "" {
-		fatal(fmt.Errorf("%s is not set", name))
+// empty unless set at build time, e.g. with -ldflags "-X main.builtinHMACSecret=..."
+var builtinHMACSecret string
+
+func hmacSecret() []byte {
+	if value := os.Getenv("SECONDFLOOR_HMAC_SECRET"); value != "" {
+		return []byte(value)
 	}
-	return value
+	if builtinHMACSecret == "" {
+		fatal(errors.New("SECONDFLOOR_HMAC_SECRET is not set"))
+	}
+	return []byte(builtinHMACSecret)
 }
 
 func fatal(err error) {

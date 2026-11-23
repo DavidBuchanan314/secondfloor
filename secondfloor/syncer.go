@@ -34,6 +34,9 @@ func (s *Syncer) Sync() (SyncResult, error) {
 		s.warned = make(map[string]bool)
 	}
 	overwrite := s.Overwrite && !s.synced
+	if !s.synced {
+		removeTemps(s.OutDir, logger)
+	}
 
 	sess, err := s.Source.Open(s.HMACSecret)
 	if err != nil {

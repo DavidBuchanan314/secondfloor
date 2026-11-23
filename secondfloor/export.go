@@ -9,14 +9,19 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/contentagnosticpb"
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/metadatapb"
 )
+
+// room for the temp prefix and extension under 255
+const maxComponentBytes = 200
 
 func SanitizePathComponent(s string) string {
 	s = strings.Map(func(r rune) rune {
@@ -28,10 +33,28 @@ func SanitizePathComponent(s string) string {
 		}
 		return r
 	}, s)
-	if s == "" || s == "." || s == ".." {
+	for len(s) > maxComponentBytes {
+		_, size := utf8.DecodeLastRuneInString(s)
+		s = s[:len(s)-size]
+	}
+	s = strings.TrimRight(s, ".")
+	if s == "" {
 		return "_"
 	}
+	if isWindowsDeviceName(s) {
+		return "_" + s
+	}
 	return s
+}
+
+func isWindowsDeviceName(s string) bool {
+	stem, _, _ := strings.Cut(s, ".")
+	stem = strings.ToUpper(stem)
+	switch stem {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	return len(stem) == 4 && (stem[:3] == "COM" || stem[:3] == "LPT") && stem[3] >= '1' && stem[3] <= '9'
 }
 
 func FormatExtension(format contentagnosticpb.Format) (string, bool) {
@@ -62,7 +85,7 @@ func TrackOutputPath(outDir string, track *metadatapb.Track, ext string) string 
 		outDir,
 		SanitizePathComponent(strings.Join(names, ", ")),
 		SanitizePathComponent(track.GetAlbum().GetName()),
-		SanitizePathComponent(number+"_"+track.GetName()+ext),
+		SanitizePathComponent(number+"_"+track.GetName())+ext,
 	)
 }
 
@@ -170,13 +193,29 @@ func writeFileAtomic(dstPath string, write func(io.Writer) error, finalize func(
 	return os.Rename(tmp.Name(), dstPath)
 }
 
+const tempPrefix = ".secondfloor-"
+
 func createTemp(dir, ext string) (*os.File, error) {
 	for {
-		name := filepath.Join(dir, ".secondfloor-"+rand.Text()+ext)
+		name := filepath.Join(dir, tempPrefix+rand.Text()+ext)
 		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 		if errors.Is(err, fs.ErrExist) {
 			continue
 		}
 		return f, err
 	}
+}
+
+func removeTemps(outDir string, logger *slog.Logger) {
+	filepath.WalkDir(outDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() || !strings.HasPrefix(d.Name(), tempPrefix) {
+			return nil
+		}
+		if err := os.Remove(path); err != nil {
+			logger.Warn("removing partial export", "path", path, "err", err)
+			return nil
+		}
+		logger.Info("removed partial export", "path", path)
+		return nil
+	})
 }
