@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,13 +193,29 @@ func writeFileAtomic(dstPath string, write func(io.Writer) error, finalize func(
 	return os.Rename(tmp.Name(), dstPath)
 }
 
+const tempPrefix = ".secondfloor-"
+
 func createTemp(dir, ext string) (*os.File, error) {
 	for {
-		name := filepath.Join(dir, ".secondfloor-"+rand.Text()+ext)
+		name := filepath.Join(dir, tempPrefix+rand.Text()+ext)
 		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 		if errors.Is(err, fs.ErrExist) {
 			continue
 		}
 		return f, err
 	}
+}
+
+func removeTemps(outDir string, logger *slog.Logger) {
+	filepath.WalkDir(outDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() || !strings.HasPrefix(d.Name(), tempPrefix) {
+			return nil
+		}
+		if err := os.Remove(path); err != nil {
+			logger.Warn("removing partial export", "path", path, "err", err)
+			return nil
+		}
+		logger.Info("removed partial export", "path", path)
+		return nil
+	})
 }
