@@ -93,7 +93,7 @@ func runList(args []string) {
 		os.Exit(2)
 	}
 
-	sess, err := src.source().Open([]byte(requireEnv("SECONDFLOOR_HMAC_SECRET")))
+	sess, err := src.source().Open(hmacSecret())
 	if err != nil {
 		fatal(err)
 	}
@@ -136,7 +136,7 @@ func runSync(args []string) {
 
 	syncer := &secondfloor.Syncer{
 		Source:       src.source(),
-		HMACSecret:   []byte(requireEnv("SECONDFLOOR_HMAC_SECRET")),
+		HMACSecret:   hmacSecret(),
 		OutDir:       flags.Arg(0),
 		Overwrite:    *overwrite,
 		FetchArtwork: *fetchArtwork,
@@ -201,12 +201,17 @@ func watchAndSync(syncer *secondfloor.Syncer) error {
 	}
 }
 
-func requireEnv(name string) string {
-	value := os.Getenv(name)
-	if value == "" {
-		fatal(fmt.Errorf("%s is not set", name))
+// empty unless set at build time, e.g. with -ldflags "-X main.builtinHMACSecret=..."
+var builtinHMACSecret string
+
+func hmacSecret() []byte {
+	if value := os.Getenv("SECONDFLOOR_HMAC_SECRET"); value != "" {
+		return []byte(value)
 	}
-	return value
+	if builtinHMACSecret == "" {
+		fatal(errors.New("SECONDFLOOR_HMAC_SECRET is not set"))
+	}
+	return []byte(builtinHMACSecret)
 }
 
 func fatal(err error) {
