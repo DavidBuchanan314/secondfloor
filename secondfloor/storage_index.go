@@ -68,7 +68,7 @@ type StorageRecord struct {
 
 func ReadStorageIndex(storageDir string, hmacSecret []byte) (*StorageIndex, error) {
 	indexPath := filepath.Join(storageDir, "index.dat")
-	data, err := os.ReadFile(indexPath)
+	data, err := readFile(indexPath)
 	if err != nil {
 		return nil, err
 	}
