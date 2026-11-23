@@ -13,10 +13,14 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/contentagnosticpb"
 	"github.com/DavidBuchanan314/secondfloor/secondfloor/metadatapb"
 )
+
+// room for the temp prefix and extension under 255
+const maxComponentBytes = 200
 
 func SanitizePathComponent(s string) string {
 	s = strings.Map(func(r rune) rune {
@@ -28,10 +32,28 @@ func SanitizePathComponent(s string) string {
 		}
 		return r
 	}, s)
-	if s == "" || s == "." || s == ".." {
+	for len(s) > maxComponentBytes {
+		_, size := utf8.DecodeLastRuneInString(s)
+		s = s[:len(s)-size]
+	}
+	s = strings.TrimRight(s, ".")
+	if s == "" {
 		return "_"
 	}
+	if isWindowsDeviceName(s) {
+		return "_" + s
+	}
 	return s
+}
+
+func isWindowsDeviceName(s string) bool {
+	stem, _, _ := strings.Cut(s, ".")
+	stem = strings.ToUpper(stem)
+	switch stem {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	return len(stem) == 4 && (stem[:3] == "COM" || stem[:3] == "LPT") && stem[3] >= '1' && stem[3] <= '9'
 }
 
 func FormatExtension(format contentagnosticpb.Format) (string, bool) {
@@ -62,7 +84,7 @@ func TrackOutputPath(outDir string, track *metadatapb.Track, ext string) string 
 		outDir,
 		SanitizePathComponent(strings.Join(names, ", ")),
 		SanitizePathComponent(track.GetAlbum().GetName()),
-		SanitizePathComponent(number+"_"+track.GetName()+ext),
+		SanitizePathComponent(number+"_"+track.GetName())+ext,
 	)
 }
 
