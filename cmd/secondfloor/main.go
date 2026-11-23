@@ -21,6 +21,7 @@ type sourceFlags struct {
 	username   *string
 	storageDir *string
 	verbose    *bool
+	logFile    *string
 }
 
 func addSourceFlags(flags *flag.FlagSet) sourceFlags {
@@ -29,12 +30,20 @@ func addSourceFlags(flags *flag.FlagSet) sourceFlags {
 		username:   flags.String("user", "", "spotify account (required if there are several)"),
 		storageDir: flags.String("storage", "", "storage directory containing index.dat (default: from spotify prefs)"),
 		verbose:    flags.Bool("v", false, "verbose (debug) logging"),
+		logFile:    flags.String("log", "", "append timestamped log lines to this file instead of stderr"),
 	}
 }
 
 func (f sourceFlags) source() *secondfloor.Source {
 	if *f.verbose {
 		logLevel.Set(slog.LevelDebug)
+	}
+	if *f.logFile != "" {
+		file, err := os.OpenFile(*f.logFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+		if err != nil {
+			fatal(fmt.Errorf("opening log file: %w", err))
+		}
+		slog.SetDefault(slog.New(slog.NewTextHandler(file, &slog.HandlerOptions{Level: logLevel})))
 	}
 	source, err := secondfloor.DiscoverDesktopSource(*f.cacheDir, *f.username)
 	if err != nil {
