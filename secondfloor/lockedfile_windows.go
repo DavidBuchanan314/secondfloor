@@ -3,12 +3,14 @@ package secondfloor
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 	"unsafe"
 
+	"github.com/syndtr/goleveldb/leveldb/storage"
 	"golang.org/x/sys/windows"
 )
 
@@ -44,6 +46,21 @@ func readFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("%s is locked and reading it through %s failed (%v), close spotify and try again: %w", path, holderExe, borrowErr, err)
 	}
 	return data, nil
+}
+
+func openReader(path string) (storage.Reader, error) {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	// so spotify can still delete tables we hold open
+	h, err := windows.CreateFile(name, windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	return os.NewFile(uintptr(h), path), nil
 }
 
 // spotify holds index.dat open unshared, so borrow its handle
